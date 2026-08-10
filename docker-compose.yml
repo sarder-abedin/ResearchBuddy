@@ -1,30 +1,19 @@
 # ─────────────────────────────────────────────────────────────
-# BeeSearch — Docker Compose
+# BeeSearch — Docker Compose (CPU / Linux / Windows base)
 #
-# Starts two services:
-#   ollama — Ollama LLM server (model storage persisted in a volume)
-#   web    — React/FastAPI web app at http://localhost:8000
+# This file is the base configuration. Use ./scripts/start.sh to
+# launch BeeSearch — it detects your GPU automatically and selects
+# the right compose file(s).
 #
-# Usage:
-#   docker compose up --build          # first run (builds app image)
-#   docker compose up                  # subsequent runs
-#   docker compose down                # stop and remove containers
+#   ./scripts/start.sh --build    # first run (builds app image)
+#   ./scripts/start.sh            # subsequent runs
+#   docker compose down           # stop and remove containers
 #
 # Pull a different model:
 #   docker compose exec ollama ollama pull mistral-nemo:12b
 #
 # Run a CLI command inside the running container:
 #   docker compose exec web python main.py --check-system
-#
-# Apple Silicon Mac (M1/M2/M3): the ollama/ollama image runs under
-#     x86 emulation and will fail its healthcheck. Install native Ollama
-#     (https://ollama.com/download), pull your model, then use:
-#   docker compose -f docker-compose.mac.yml up --build
-#
-# For NVIDIA GPU support:
-#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
-# For AMD Radeon GPU + RAM sharing:
-#   docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
 # ─────────────────────────────────────────────────────────────
 
 services:

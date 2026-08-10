@@ -55,10 +55,8 @@ python -m uvicorn backend.app.main:app --reload --port 8000   # backend, http://
 cd frontend && npm install && npm run dev                      # frontend, http://localhost:5173
 BEESEARCH_MOCK_LLM=1 python -m uvicorn backend.app.main:app --reload --port 8000  # backend w/ stubbed LLM+search, no Ollama needed
 
-# Docker (single command — React + FastAPI + Ollama)
-docker compose up --build   # Linux/Windows — opens http://localhost:8000
-./scripts/start-mac.sh      # macOS Apple Silicon (uses native Ollama)
-./scripts/start-gpu.sh      # Linux NVIDIA GPU
+# Docker (single command — React + FastAPI + Ollama, GPU auto-detected)
+./scripts/start.sh --build   # all platforms — opens http://localhost:8000
 ```
 
 ### Tests
