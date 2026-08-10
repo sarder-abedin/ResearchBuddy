@@ -67,18 +67,12 @@ The `.env` file holds your settings. The defaults work fine to get started.
 **Step 3 — Start the app**
 
 ```bash
-# Linux / Windows (Git Bash or WSL)
-docker compose up --build
-
-# macOS (Apple Silicon M1/M2/M3) — uses native Ollama instead of Docker Ollama
-./scripts/start-mac.sh
+./scripts/start.sh --build
 ```
 
-The first run downloads the AI model (~2 GB) and builds the app — this takes 5–10 minutes. After that, starts take under a minute. The app opens at **http://localhost:8000**. Press **Ctrl-C** to stop.
+The script detects your GPU automatically (NVIDIA, AMD, or Apple Silicon) and uses the right configuration. The first run downloads the AI model (~2 GB) and builds the app — this takes 5–10 minutes. After that, starts take under a minute. The app opens at **http://localhost:8000**. Press **Ctrl-C** to stop.
 
-> **macOS with Ollama already installed natively:**
-> Add `OLLAMA_BASE_URL=http://host.docker.internal:11434` to your `.env` file, then run:
-> `docker compose -f docker-compose.mac.yml up web --build`
+> **macOS (Apple Silicon M1/M2/M3):** Docker cannot run Ollama natively on Apple Silicon. Install [Ollama](https://ollama.com/download) first — it starts automatically after installation. Pull your models once (`ollama pull llama3.2:3b && ollama pull nomic-embed-text`), then run `./scripts/start.sh --build`.
 
 > **No Docker?** See [Local install (no Docker)](#local-install-no-docker) in the For developers section.
 
@@ -88,70 +82,56 @@ The first run downloads the AI model (~2 GB) and builds the app — this takes 5
 
 BeeSearch runs on CPU by default. Adding a GPU lets Ollama offload model layers to VRAM, making responses significantly faster. If the model doesn't fully fit in VRAM, Ollama automatically splits it — GPU layers run on the card, the rest run on CPU+RAM, with no manual configuration required.
 
+**GPU is detected automatically.** `./scripts/start.sh` checks for NVIDIA, AMD, and Apple Silicon in turn and picks the right Docker Compose configuration. All you need to do is install the prerequisites for your hardware.
+
 ### NVIDIA GPU
 
-Requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+Install [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html), then run:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+./scripts/start.sh --build
 ```
 
 ### AMD Radeon GPU (ROCm)
 
-First check which Docker you are running — this determines which command to use:
+Install [ROCm drivers](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/). Then check which Docker variant you are running — it determines the setup path:
 
 ```bash
-docker info | grep Context
-# default       → Docker Engine  (full GPU passthrough — use steps below)
-# desktop-linux → Docker Desktop (runs in a VM — see Docker Desktop section)
+docker context show
+# default        → Docker Engine  (full GPU passthrough)
+# desktop-linux  → Docker Desktop (runs in a VM — native Ollama required)
 ```
 
-**Docker Engine** (native Linux — `Context: default`):
+**Docker Engine** (`default` context):
 
-Requires [ROCm drivers](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/) and your user in the `docker` and `video` groups:
+Add your user to the `docker` and `video` groups, then log out and back in:
 
 ```bash
 sudo usermod -aG docker $USER
 sudo usermod -aG video $USER
 ```
 
-Log out and back in for the group changes to take effect, or activate them in the current shell without logging out:
+Then start BeeSearch:
 
 ```bash
-newgrp docker
+./scripts/start.sh --build
 ```
 
-Then start BeeSearch with ROCm GPU support:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
-```
-
-After the Ollama container is healthy, pull your models (one-time; stored in the `ollama_models` Docker volume):
-
-```bash
-docker compose exec ollama ollama pull llama3.2:3b
-docker compose exec ollama ollama pull nomic-embed-text
-docker compose exec ollama ollama pull llava:7b   # optional — figure captioning in PDFs
-```
-
-> **Integrated GPU warning** — if you see `dropping ROCm device — no rocblas support for gfx target` in the logs, that is your CPU's integrated graphics being skipped. It is harmless; Ollama uses your discrete Radeon card automatically.
+> **Integrated GPU warning** — if you see `dropping ROCm device — no rocblas support for gfx target` in the logs, your CPU's integrated graphics is being skipped. It is harmless; Ollama uses your discrete Radeon card automatically.
 
 > **Older AMD cards (Polaris / Vega / pre-RDNA)** — some cards need a GFX version hint. Check your card with `rocminfo | grep gfx`, then uncomment `HSA_OVERRIDE_GFX_VERSION` in `docker-compose.gpu-amd.yml`.
 
-**Docker Desktop on Linux** (`Context: desktop-linux`):
+**Docker Desktop on Linux** (`desktop-linux` context):
 
-Docker Desktop runs inside a Linuxkit VM and cannot pass through `/dev/kfd`. Instead, install Ollama natively on the host (ROCm is auto-detected if drivers are already installed), then run only the BeeSearch web container:
+Docker Desktop runs inside a VM and cannot pass `/dev/kfd` through. Install Ollama natively instead — ROCm is auto-detected if drivers are already installed:
 
 ```bash
-curl -fsSL https://ollama.com/install.sh | sh   # installs Ollama binary; ROCm auto-detected
+curl -fsSL https://ollama.com/install.sh | sh
 ollama pull llama3.2:3b
 ollama pull nomic-embed-text
-ollama pull llava:7b   # optional
-docker compose -f docker-compose.amd-native.yml up --build
 ```
 
-GPU work happens inside native Ollama on the host — BeeSearch's web container just calls its API. Performance is identical to the Docker Engine approach.
+Then run `./scripts/start.sh --build`. GPU work happens inside native Ollama on the host — BeeSearch's web container just calls its API.
 
 **GPU + RAM sharing** — Ollama automatically fits as many model layers as possible into VRAM and runs the rest on CPU+RAM. No manual tuning is needed. To reserve VRAM headroom for your desktop, set `OLLAMA_GPU_OVERHEAD` (bytes) in your `.env`:
 
@@ -236,8 +216,8 @@ ls ~/.ollama/models/manifests/registry.ollama.ai/library/
 ### Stop and restart
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml down   # stop
-docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up -d  # start in background
+docker compose down        # stop and remove containers
+./scripts/start.sh         # start again (GPU is re-detected automatically)
 ```
 
 `down` does **not** delete your models — they are in `~/.ollama` on the host.
