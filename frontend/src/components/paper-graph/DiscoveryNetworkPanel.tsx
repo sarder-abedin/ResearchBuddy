@@ -4,7 +4,7 @@ import { createCollection, expandCollection, pollExpandJob } from "../../api/pap
 import type { ExpandRelationship, GraphData, PaperNode } from "../../api/paperGraphTypes";
 import "../sr/sr-common.css";
 import ForceGraph from "./ForceGraph";
-import PaperDetailPanel from "./PaperDetailPanel";
+import PaperIndexPanel from "./PaperIndexPanel";
 import "./PaperGraph.css";
 
 type InitStatus = "idle" | "creating" | "ready" | "error";
@@ -161,8 +161,10 @@ export default function DiscoveryNetworkPanel() {
         </>
       )}
 
-      {graph && (
-        <>
+      {graph && (() => {
+        const nodeNumbers = new Map(graph.nodes.map((n, i) => [n.id, i + 1]));
+        return (
+          <>
           <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
             <div
               ref={containerRef}
@@ -176,21 +178,22 @@ export default function DiscoveryNetworkPanel() {
                 graph={graph}
                 onNodeClick={setSelectedNode}
                 selectedNodeId={selectedNode?.id}
+                nodeNumbers={nodeNumbers}
                 width={graphWidth}
                 height={480}
               />
             </div>
-            {selectedNode && (
-              <div style={{ flex: "0 0 300px" }}>
-                <PaperDetailPanel
-                  node={selectedNode}
-                  onExpand={handleExpand}
-                  expandRelationship={expandRelationship}
-                  onExpandRelationshipChange={setExpandRelationship}
-                  expanding={expandStatus === "expanding"}
-                />
-              </div>
-            )}
+            <PaperIndexPanel
+              nodes={graph.nodes}
+              nodeNumbers={nodeNumbers}
+              selectedNodeId={selectedNode?.id ?? null}
+              onSelect={setSelectedNode}
+              onExpand={handleExpand}
+              expandRelationship={expandRelationship}
+              onExpandRelationshipChange={setExpandRelationship}
+              expanding={expandStatus === "expanding"}
+              height={480}
+            />
           </div>
 
           {expandStatus === "expanding" && (
@@ -211,8 +214,9 @@ export default function DiscoveryNetworkPanel() {
           >
             New collection
           </button>
-        </>
-      )}
+          </>
+        );
+      })()}
     </div>
   );
 }

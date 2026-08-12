@@ -207,3 +207,132 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ── Numbered paper index sidebar ───────────────────────────────────────── */
+
+.pg-index-panel {
+  flex: 0 0 280px;
+  min-width: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  /* Thin scrollbar so it doesn't eat into the fixed width */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.pg-index-item {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background 0.12s;
+  align-items: flex-start;
+}
+
+.pg-index-item:last-child {
+  border-bottom: none;
+}
+
+.pg-index-item:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.04));
+}
+
+.pg-index-item--selected {
+  background: var(--color-accent-bg, rgba(184, 134, 11, 0.1));
+}
+
+.pg-index-item--selected:hover {
+  background: var(--color-accent-bg, rgba(184, 134, 11, 0.15));
+}
+
+.pg-index-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  flex-shrink: 0;
+  margin-top: 1px;
+  letter-spacing: -0.02em;
+}
+
+.pg-index-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pg-index-title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-text);
+  /* Two-line clamp when not selected */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.pg-index-item--selected .pg-index-title {
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.pg-index-meta {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: 0.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pg-index-detail {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.5rem;
+}
+
+.pg-index-abstract {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.pg-index-abstract--na {
+  font-style: italic;
+  color: var(--color-muted);
+}
+
+.pg-index-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.pg-index-link {
+  font-size: 0.78rem;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.pg-index-link:hover {
+  text-decoration: underline;
+}
+
+/* Small variant of sr-button for tight sidebar context */
+.sr-button--sm {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
