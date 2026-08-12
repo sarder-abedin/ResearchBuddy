@@ -4,7 +4,7 @@ import { pollSimilarityGraphJob, runSimilarityGraph } from "../../api/paperGraph
 import type { GraphData, PaperNode } from "../../api/paperGraphTypes";
 import "../sr/sr-common.css";
 import ForceGraph from "./ForceGraph";
-import PaperDetailPanel from "./PaperDetailPanel";
+import PaperIndexPanel from "./PaperIndexPanel";
 import "./PaperGraph.css";
 
 type RunStatus = "idle" | "running" | "done" | "error";
@@ -140,46 +140,53 @@ export default function SimilarityGraphPanel() {
       {status === "running" && <p className="pg-status">{stage}</p>}
       {status === "error" && <p className="pg-error">{error}</p>}
 
-      {graph && (
-        <>
-          <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
-            <div ref={containerRef} className="pg-graph-container" style={{ flex: "1 1 0", minWidth: 0 }}>
-              {graph.partial && graph.notice && (
-                <div className="pg-graph-notice">{graph.notice}</div>
-              )}
-              <ForceGraph
-                graph={graph}
-                onNodeClick={setSelectedNode}
-                selectedNodeId={selectedNode?.id}
-                width={graphWidth}
+      {graph && (() => {
+        const nodeNumbers = new Map(graph.nodes.map((n, i) => [n.id, i + 1]));
+        return (
+          <>
+            <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
+              <div ref={containerRef} className="pg-graph-container" style={{ flex: "1 1 0", minWidth: 0 }}>
+                {graph.partial && graph.notice && (
+                  <div className="pg-graph-notice">{graph.notice}</div>
+                )}
+                <ForceGraph
+                  graph={graph}
+                  onNodeClick={setSelectedNode}
+                  selectedNodeId={selectedNode?.id}
+                  nodeNumbers={nodeNumbers}
+                  width={graphWidth}
+                  height={480}
+                />
+              </div>
+              <PaperIndexPanel
+                nodes={graph.nodes}
+                nodeNumbers={nodeNumbers}
+                selectedNodeId={selectedNode?.id ?? null}
+                onSelect={setSelectedNode}
+                onSetAsOrigin={handleSetOrigin}
                 height={480}
               />
             </div>
-            {selectedNode && (
-              <div style={{ flex: "0 0 300px" }}>
-                <PaperDetailPanel node={selectedNode} onSetAsOrigin={handleSetOrigin} />
-              </div>
-            )}
-          </div>
 
-          <div className="pg-legend">
-            <span className="pg-legend-item">
-              <span className="pg-legend-swatch" style={{ background: "rgb(107,111,106)" }} />
-              Older papers
-            </span>
-            <span className="pg-legend-item">
-              <span className="pg-legend-swatch" style={{ background: "rgb(184,134,11)" }} />
-              Recent papers
-            </span>
-            <span className="pg-legend-item">
-              Node size = citation count
-            </span>
-          </div>
-          <p className="pg-status">
-            {graph.nodes.length} papers · {graph.edges.length} edges
-          </p>
-        </>
-      )}
+            <div className="pg-legend">
+              <span className="pg-legend-item">
+                <span className="pg-legend-swatch" style={{ background: "rgb(107,111,106)" }} />
+                Older papers
+              </span>
+              <span className="pg-legend-item">
+                <span className="pg-legend-swatch" style={{ background: "rgb(184,134,11)" }} />
+                Recent papers
+              </span>
+              <span className="pg-legend-item">
+                Node size = citation count
+              </span>
+            </div>
+            <p className="pg-status">
+              {graph.nodes.length} papers · {graph.edges.length} edges
+            </p>
+          </>
+        );
+      })()}
     </div>
   );
 }

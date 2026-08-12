@@ -24,6 +24,7 @@ interface ForceGraphProps {
   graph: GraphData;
   onNodeClick: (paper: PaperNode) => void;
   selectedNodeId?: string | null;
+  nodeNumbers?: Map<string, number>;
   width?: number;
   height?: number;
 }
@@ -51,6 +52,7 @@ export default function ForceGraph({
   graph,
   onNodeClick,
   selectedNodeId,
+  nodeNumbers,
   width = 680,
   height = 480,
 }: ForceGraphProps) {
@@ -71,30 +73,40 @@ export default function ForceGraph({
 
   const paintNode = useCallback(
     (node: FGNode, ctx: CanvasRenderingContext2D) => {
-      const r = nodeRadius(node.citation_count);
+      const baseR = nodeRadius(node.citation_count);
+      // Enforce a minimum so the number always fits inside
+      const r = Math.max(8, baseR);
       const isSelected = node.id === selectedNodeId;
+      const cx = node.x ?? 0;
+      const cy = node.y ?? 0;
+
+      // Circle fill
       ctx.beginPath();
-      ctx.arc(node.x ?? 0, node.y ?? 0, isSelected ? r + 3 : r, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, isSelected ? r + 3 : r, 0, 2 * Math.PI);
       ctx.fillStyle = yearToColor(node.year);
       ctx.fill();
+
+      // Selection ring
       if (isSelected) {
         ctx.strokeStyle = "#b8860b";
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.stroke();
       }
-      // Label for selected node or large nodes
-      if (isSelected || r >= 10) {
-        ctx.font = `${isSelected ? "bold " : ""}${Math.max(9, r * 0.8)}px sans-serif`;
-        ctx.fillStyle = "#1f2320";
+
+      // Number label centered inside the circle
+      const num = nodeNumbers ? (nodeNumbers.get(node.id) ?? "") : "";
+      if (num !== "") {
+        const digits = String(num).length;
+        const fontSize = digits > 2 ? Math.max(6, r * 0.6) : Math.max(7, r * 0.75);
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.fillStyle = "#1a1a1a";
         ctx.textAlign = "center";
-        ctx.fillText(
-          node.title.length > 30 ? node.title.slice(0, 28) + "…" : node.title,
-          node.x ?? 0,
-          (node.y ?? 0) + r + 9,
-        );
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(num), cx, cy);
+        ctx.textBaseline = "alphabetic";
       }
     },
-    [selectedNodeId],
+    [selectedNodeId, nodeNumbers],
   );
 
   const linkColor = useCallback((link: FGLink) => {
