@@ -100,8 +100,8 @@ class Settings(BaseSettings):
     vision_model: str = Field("", alias="VISION_MODEL")
 
     # ── Langfuse Observability (optional) ────────────────────
-    langfuse_public_key: str = Field("pk-lf-699e04e9-1e25-42dd-adf7-ac7e953b967d", alias="LANGFUSE_PUBLIC_KEY")
-    langfuse_secret_key: str = Field("sk-lf-13e61a45-2332-495a-9084-2bf2ff7ec94c", alias="LANGFUSE_SECRET_KEY")
+    langfuse_public_key: str = Field("", alias="LANGFUSE_PUBLIC_KEY")
+    langfuse_secret_key: str = Field("", alias="LANGFUSE_SECRET_KEY")
     langfuse_host: str = Field("http://localhost:3000", alias="LANGFUSE_HOST")
 
     class Config:

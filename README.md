@@ -20,6 +20,7 @@
 - [Using the web interface](#using-the-web-interface)
 - [Adjusting AI responses](#adjusting-ai-responses)
 - [Settings reference](#settings-reference)
+- [LLM observability (Langfuse)](#llm-observability-langfuse)
 - [For developers](#for-developers)
 - [Output files](#output-files)
 - [Documentation](#documentation)
@@ -385,15 +386,92 @@ SEMANTIC_SCHOLAR_API_KEY=
 CROSSREF_EMAIL=your@email.com
 ```
 
-Optional — LLM observability with [Langfuse](https://langfuse.com) (traces every AI call with prompts, latency, and token counts):
+Optional — LLM observability: see [LLM observability (Langfuse)](#llm-observability-langfuse) below for setup. Leave blank to disable tracing entirely.
 
 ```env
-# 1. Start self-hosted Langfuse: docker compose -f docker-compose.langfuse.yml up -d
-# 2. Open http://localhost:3000 → create account → Settings → API Keys
-# 3. Paste the keys below. Leave blank to disable tracing (no overhead, no errors).
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=http://localhost:3000
+```
+
+---
+
+## LLM observability (Langfuse)
+
+[Langfuse](https://langfuse.com) is an open-source LLM observability platform. When enabled, BeeSearch sends traces for every AI call — prompts, completions, latency, token counts, and per-agent stage timing — so you can inspect exactly what the model received and returned. **Tracing is fully optional.** Leaving the keys blank disables it with no overhead or errors.
+
+### Option A — Self-hosted (recommended for local use)
+
+BeeSearch ships a ready-made Langfuse compose file that runs Postgres + Langfuse on your machine.
+
+**Step 1 — Start Langfuse alongside BeeSearch:**
+
+```bash
+docker compose -f docker-compose.langfuse.yml up -d
+```
+
+**Step 2 — Create your account and API keys:**
+
+1. Open **http://localhost:3000** in your browser
+2. Sign up (stays local — no data leaves your machine)
+3. Go to **Settings → API Keys → Create new key**
+4. Copy the **Public Key** (starts with `pk-lf-`) and **Secret Key** (starts with `sk-lf-`)
+
+**Step 3 — Add the keys to `.env`:**
+
+```env
+LANGFUSE_PUBLIC_KEY=pk-lf-your-key-here
+LANGFUSE_SECRET_KEY=sk-lf-your-key-here
+
+# Use the container name when BeeSearch itself also runs in Docker:
+LANGFUSE_HOST=http://beesearch-langfuse:3000
+
+# Use localhost when running the backend locally (no Docker):
+# LANGFUSE_HOST=http://localhost:3000
+```
+
+> **Important — `LANGFUSE_HOST` value depends on how BeeSearch runs:**
+> | BeeSearch via | `LANGFUSE_HOST` |
+> |---|---|
+> | `./scripts/start.sh` (Docker) | `http://beesearch-langfuse:3000` |
+> | Local dev (`uvicorn ...`) | `http://localhost:3000` |
+
+**Step 4 — Restart BeeSearch** so it picks up the new keys:
+
+```bash
+docker compose down && ./scripts/start.sh
+```
+
+Open **http://localhost:3000** → **Traces** to see every LLM call in real time.
+
+### Option B — Langfuse Cloud
+
+If you prefer a managed service instead of self-hosting:
+
+1. Create a free account at [cloud.langfuse.com](https://cloud.langfuse.com)
+2. Go to **Settings → API Keys** and create a key pair
+3. Add to `.env`:
+
+```env
+LANGFUSE_PUBLIC_KEY=pk-lf-your-key-here
+LANGFUSE_SECRET_KEY=sk-lf-your-key-here
+LANGFUSE_HOST=https://cloud.langfuse.com
+```
+
+### Security note
+
+> **Never commit your Langfuse keys to git.** The `.env` file is already in `.gitignore`. Only `.env.example` (which contains no real keys) is tracked. Generate fresh keys from the Langfuse dashboard if you suspect a previous key was exposed.
+
+### Stopping Langfuse
+
+```bash
+docker compose -f docker-compose.langfuse.yml down
+```
+
+Data is stored in the `langfuse_db` Docker volume and survives restarts. To delete it permanently:
+
+```bash
+docker compose -f docker-compose.langfuse.yml down -v
 ```
 
 ---
