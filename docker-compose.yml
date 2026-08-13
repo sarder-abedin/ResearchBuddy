@@ -104,6 +104,10 @@ services:
       # Optional: Semantic Scholar API key for higher rate limits
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - CROSSREF_EMAIL=${CROSSREF_EMAIL:-researcher@example.com}
+      # Optional: Langfuse LLM observability (start.sh sets LANGFUSE_HOST automatically)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-}
     volumes:
       # Generated reports and session memory persist on the host
       - ./outputs:/app/outputs
