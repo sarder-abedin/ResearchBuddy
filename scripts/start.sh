@@ -3,6 +3,8 @@
 #
 # Detects your GPU (NVIDIA / AMD / Apple Silicon) and starts BeeSearch with
 # the right Docker Compose configuration automatically.
+# If LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are present in .env,
+# the Langfuse observability stack starts alongside BeeSearch automatically.
 #
 # Usage:
 #   ./scripts/start.sh           # start (uses cached image)
@@ -12,7 +14,22 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
 APP_URL="http://localhost:${PORT:-8000}"
+LANGFUSE_URL="http://localhost:3000"
+LANGFUSE_COMPOSE="$REPO_ROOT/docker-compose.langfuse.yml"
+
+# ── Read a single key from .env without sourcing the file ─────────────────────
+
+_read_dotenv_key() {
+    local key="$1"
+    local file="$REPO_ROOT/.env"
+    if [[ -f "$file" ]]; then
+        grep -E "^${key}=" "$file" | head -1 | sed 's/^[^=]*=//'
+    fi
+}
 
 # ── Platform / GPU detection ──────────────────────────────────────────────────
 
@@ -68,17 +85,17 @@ case "$PLATFORM" in
             echo "  4. Run this script again"
             exit 1
         fi
-        COMPOSE_CMD=(docker compose -f docker-compose.mac.yml)
+        COMPOSE_CMD=(docker compose -f "$REPO_ROOT/docker-compose.mac.yml")
         ;;
 
     nvidia)
         echo "Detected: NVIDIA GPU → CUDA configuration"
-        COMPOSE_CMD=(docker compose -f docker-compose.yml -f docker-compose.gpu.yml)
+        COMPOSE_CMD=(docker compose -f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.gpu.yml")
         ;;
 
     amd)
         echo "Detected: AMD Radeon GPU (Docker Engine) → ROCm configuration"
-        COMPOSE_CMD=(docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml)
+        COMPOSE_CMD=(docker compose -f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.gpu-amd.yml")
         ;;
 
     amd-native)
@@ -94,21 +111,41 @@ case "$PLATFORM" in
             echo "  3. Run this script again"
             exit 1
         fi
-        COMPOSE_CMD=(docker compose -f docker-compose.amd-native.yml)
+        COMPOSE_CMD=(docker compose -f "$REPO_ROOT/docker-compose.amd-native.yml")
         ;;
 
     cpu)
         echo "No GPU detected → CPU-only mode"
-        COMPOSE_CMD=(docker compose -f docker-compose.yml)
+        COMPOSE_CMD=(docker compose -f "$REPO_ROOT/docker-compose.yml")
         ;;
 esac
 
+# ── Langfuse observability (optional) ────────────────────────────────────────
+# If both keys are present in .env, start the Langfuse stack alongside BeeSearch.
+
+LF_PK=$(_read_dotenv_key "LANGFUSE_PUBLIC_KEY")
+LF_SK=$(_read_dotenv_key "LANGFUSE_SECRET_KEY")
+
+if [[ -n "$LF_PK" && -n "$LF_SK" ]]; then
+    LANGFUSE_ENABLED=1
+    # Tell the web container to reach Langfuse by its Docker service name.
+    # This must be exported before 'docker compose up' so the container picks it up.
+    export LANGFUSE_HOST="http://beesearch-langfuse:3000"
+else
+    LANGFUSE_ENABLED=0
+fi
+
 # ── Shutdown on Ctrl-C ────────────────────────────────────────────────────────
+
+LANGFUSE_STARTED=0
 
 _cleanup() {
     echo ""
     echo "Shutting down…"
     "${COMPOSE_CMD[@]}" down --remove-orphans
+    if [[ "$LANGFUSE_STARTED" == "1" ]]; then
+        docker compose -f "$LANGFUSE_COMPOSE" down
+    fi
 }
 
 trap _cleanup EXIT INT TERM
@@ -120,13 +157,15 @@ trap _cleanup EXIT INT TERM
     for i in $(seq 1 90); do
         if curl -sf "${APP_URL}/api/health" >/dev/null 2>&1; then
             echo ""
-            echo "BeeSearch is ready — opening $APP_URL"
+            echo "  BeeSearch → $APP_URL"
+            if [[ "$LANGFUSE_ENABLED" == "1" ]]; then
+                echo "  Langfuse  → $LANGFUSE_URL"
+            fi
+            echo ""
             if command -v xdg-open &>/dev/null; then
                 xdg-open "$APP_URL"
             elif command -v open &>/dev/null; then
                 open "$APP_URL"
-            else
-                echo "Open your browser at: $APP_URL"
             fi
             exit 0
         fi
@@ -137,4 +176,17 @@ trap _cleanup EXIT INT TERM
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 
-"${COMPOSE_CMD[@]}" up "$@"
+if [[ "$LANGFUSE_ENABLED" == "1" ]]; then
+    echo ""
+    echo "Langfuse keys found in .env — starting LLM observability stack…"
+    # Start BeeSearch detached first — this creates the beesearch_default network
+    # that docker-compose.langfuse.yml joins as an external network.
+    "${COMPOSE_CMD[@]}" up -d "$@"
+    # Start Langfuse now that the network exists
+    docker compose -f "$LANGFUSE_COMPOSE" up -d
+    LANGFUSE_STARTED=1
+    # Follow logs in the foreground so Ctrl-C reaches _cleanup
+    "${COMPOSE_CMD[@]}" logs -f
+else
+    "${COMPOSE_CMD[@]}" up "$@"
+fi
