@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from tools.session_db import _tx, init_db, pack, unpack
+from tools.text_parsing import join_chunks_with_headings
 
 logger = logging.getLogger(__name__)
 
@@ -555,7 +556,10 @@ def rebuild_processed_documents(notebook: Dict[str, Any]) -> List[Any]:
             )
             for c in sorted_chunks
         ]
-        raw_text = "\n\n".join(c.get("text", "") for c in sorted_chunks)
+        # Restores section headings Docling stored in chunk metadata rather
+        # than chunk text, so consumers of raw_text still see the document's
+        # section structure.
+        raw_text = join_chunks_with_headings(sorted_chunks)
         docs.append(ProcessedDocument(
             doc_id=doc_id,
             filename=filename,

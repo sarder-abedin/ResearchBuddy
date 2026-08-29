@@ -15,7 +15,12 @@ Pure stdlib — no network access or heavy deps required.
 
 from __future__ import annotations
 
-from tools.text_parsing import extract_references_section, extract_suggested_questions
+from tools.text_parsing import (
+    extract_references_section,
+    extract_suggested_questions,
+    join_chunks_with_headings,
+    prepend_heading,
+)
 
 
 def test_full_json_object():
@@ -243,3 +248,87 @@ def test_numbered_fallback_requires_minimum_run_length():
         "[2] We evaluate it extensively."
     )
     assert extract_references_section(text) == ""
+
+
+# ── prepend_heading() ────────────────────────────────────────────────────
+
+
+def test_prepend_heading_adds_heading_on_its_own_line():
+    """A heading held only in chunk metadata is restored as a leading line."""
+    assert prepend_heading("Smith, J. (2020).", "References") == "References\nSmith, J. (2020)."
+
+
+def test_prepend_heading_is_idempotent():
+    """Text that already opens with the heading is returned unchanged, so chunks ingested after the fix aren't double-prefixed."""
+    already = "References\nSmith, J. (2020)."
+    assert prepend_heading(already, "References") == already
+    # Same line rather than its own line still counts as already present.
+    assert prepend_heading("References Smith, J.", "References") == "References Smith, J."
+    # Case differences in the stored heading shouldn't cause a duplicate.
+    assert prepend_heading("REFERENCES\nSmith, J.", "References") == "REFERENCES\nSmith, J."
+
+
+def test_prepend_heading_empty_heading_is_a_noop():
+    """Chunks with no heading metadata pass through untouched."""
+    assert prepend_heading("body text", "") == "body text"
+    assert prepend_heading("body text", "   ") == "body text"
+
+
+# ── join_chunks_with_headings() ──────────────────────────────────────────
+
+
+def _chunk(text: str, heading: str = "") -> dict:
+    """Build a stored-chunk dict of the shape NotebookMemory.load() returns."""
+    meta = {"source": "paper.pdf"}
+    if heading:
+        meta["heading"] = heading
+    return {"text": text, "metadata": meta}
+
+
+def test_join_chunks_emits_each_heading_once_per_section():
+    """Docling repeats a section's heading on every chunk; the rejoin emits it only where it changes."""
+    chunks = [
+        _chunk("First part of the methods.", "Methods"),
+        _chunk("Second part of the methods.", "Methods"),
+        _chunk("What we found.", "Results"),
+    ]
+    joined = join_chunks_with_headings(chunks)
+    assert joined.count("Methods") == 1
+    assert joined.count("Results") == 1
+    assert joined.index("Methods") < joined.index("Results")
+
+
+def test_join_chunks_without_heading_metadata_matches_plain_join():
+    """Chunks carrying no heading metadata rejoin exactly as the old plain join did."""
+    chunks = [_chunk("alpha"), _chunk("beta")]
+    assert join_chunks_with_headings(chunks) == "alpha\n\nbeta"
+
+
+def test_join_chunks_tolerates_missing_and_malformed_metadata():
+    """A chunk with absent or non-dict metadata doesn't break the rejoin."""
+    chunks = [{"text": "alpha"}, {"text": "beta", "metadata": None}, {"text": "gamma", "metadata": []}]
+    assert join_chunks_with_headings(chunks) == "alpha\n\nbeta\n\ngamma"
+
+
+def test_author_year_bibliography_recovered_from_heading_metadata():
+    """The reported bug: an author-year bibliography whose "References" heading lived only in chunk metadata was invisible to extract_references_section().
+
+    Author-year styles (APA, Harvard, Nature) have no "[1] [2] [3]" markers, so
+    the numbered-bibliography fallback cannot rescue them -- without the heading
+    the whole source was silently skipped by extract_citation_timeline().
+    """
+    chunks = [
+        _chunk("Body text discussing prior work. " * 30, "Introduction"),
+        _chunk("Smith, J. (2020). A great paper. Journal of Things.", "References"),
+        _chunk("Doe, A. (2019). Another paper. Conference of Stuff.", "References"),
+    ]
+
+    # Old behaviour: heading dropped -> nothing found.
+    plain = "\n\n".join(c["text"] for c in chunks)
+    assert extract_references_section(plain) == ""
+
+    # With the heading restored, the bibliography is isolated correctly.
+    section = extract_references_section(join_chunks_with_headings(chunks))
+    assert section.startswith("Smith, J. (2020)")
+    assert "Doe, A. (2019)" in section
+    assert "prior work" not in section

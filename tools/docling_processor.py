@@ -26,6 +26,7 @@ from tools.document_tools import (
     _clean_text,
     _stable_id,
 )
+from tools.text_parsing import prepend_heading
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,9 @@ def _map_docling_chunks(
 ) -> List[DocumentChunk]:
     """Map Docling ChunkWithMetadata objects to DocumentChunk dataclass."""
     chunks: List[DocumentChunk] = []
+    # Docling repeats a section's heading on every chunk within it; emitting it
+    # only when it changes reproduces the document's real section structure.
+    prev_heading = ""
 
     for i, chunk in enumerate(raw_chunks):
         text = (getattr(chunk, "text", "") or "").strip()
@@ -202,6 +206,14 @@ def _map_docling_chunks(
                             text = _table_md_to_plain(md) or text
                 except (ImportError, Exception):
                     pass
+
+        # Bake the section heading into the chunk body. Docling keeps it only
+        # in chunk.meta.headings, so without this every consumer that rebuilds
+        # a document from chunk text (citation timeline, section detection,
+        # Research Report context) sees a document with no section boundaries.
+        if heading and heading != prev_heading:
+            text = prepend_heading(text, heading)
+        prev_heading = heading
 
         cid = _stable_id(f"{doc_id}:{i}:{text[:50]}")
         metadata: dict = {

@@ -10,6 +10,11 @@ the various formats and minor JSON quirks local models tend to produce.
 extract_references_section() locates the bibliography at the end of an
 academic paper, for the Notebook "Citation Timeline" feature.
 
+prepend_heading() and join_chunks_with_headings() restore the section heading
+Docling stores in a chunk's metadata rather than its text, so a document
+rebuilt from stored chunks still has the section structure the extractors
+above search for.
+
 format_page_label() converts a chunk's internal 0-based page_num into the
 1-based label a user would actually see in their PDF viewer.
 """
@@ -151,6 +156,52 @@ def extract_references_section(text: str) -> str:
                 section = fallback
 
     return section
+
+
+def prepend_heading(text: str, heading: str) -> str:
+    """
+    Return ``text`` with ``heading`` restored as its own leading line.
+
+    Returns ``text`` unchanged when ``heading`` is empty or the text already
+    opens with it, so this is safe to apply to chunks that were ingested
+    before headings were baked in as well as to ones that already carry them.
+    """
+    heading = (heading or "").strip()
+    if not heading:
+        return text
+    if text.lstrip().casefold().startswith(heading.casefold()):
+        return text
+    return f"{heading}\n{text}"
+
+
+def join_chunks_with_headings(chunks, separator: str = "\n\n") -> str:
+    """
+    Rejoin stored chunk dicts into one document string, restoring the section
+    heading each chunk was extracted under.
+
+    Docling reports a chunk's heading in ``chunk.meta.headings`` rather than in
+    the chunk body, and the processor stores it as ``metadata["heading"]``. A
+    plain ``separator.join(c["text"] ...)`` therefore rebuilds a document with
+    no section headings at all — which is why extract_references_section()
+    could find no "References" line and silently skipped whole sources whose
+    bibliography wasn't numbered ``[1] [2] [3]``.
+
+    A heading is emitted once, at the point it changes, rather than on every
+    chunk of a section: repeating it would leave extract_references_section()
+    matching the *last* "References" occurrence and returning only the final
+    fragment of the bibliography.
+    """
+    parts: List[str] = []
+    prev_heading = ""
+    for chunk in chunks:
+        text = chunk.get("text", "") or ""
+        meta = chunk.get("metadata") or {}
+        heading = (meta.get("heading") or "").strip() if isinstance(meta, dict) else ""
+        if heading and heading != prev_heading:
+            text = prepend_heading(text, heading)
+        prev_heading = heading
+        parts.append(text)
+    return separator.join(parts)
 
 
 def format_page_label(page_num) -> str:
