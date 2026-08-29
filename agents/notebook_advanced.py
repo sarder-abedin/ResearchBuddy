@@ -37,7 +37,11 @@ from config.settings import get_settings
 from tools.citation_network import get_paper_abstract
 from tools.search_tools import search_arxiv, search_semantic_scholar
 from tools.temperature_levels import DEFAULT_TEMPERATURE_LEVEL, apply_temperature_level
-from tools.text_parsing import extract_references_section, format_page_label
+from tools.text_parsing import (
+    extract_references_section,
+    format_page_label,
+    join_chunks_with_headings,
+)
 from tools.writing_style import ANTI_AI_TELL_INSTRUCTION, ANTI_AI_TELL_NARRATIVE_INSTRUCTION, ANTI_AI_TELL_REVIEWER_INSTRUCTION
 
 logger = logging.getLogger(__name__)
@@ -843,16 +847,18 @@ def extract_citation_timeline(
         return [], "No sources in this notebook."
 
     chunks = notebook.get("chunks", [])
-    by_doc: Dict[str, List[str]] = {}
+    by_doc: Dict[str, List[Dict[str, Any]]] = {}
     for ch in chunks:
-        by_doc.setdefault(ch["doc_id"], []).append(ch.get("text", ""))
+        by_doc.setdefault(ch["doc_id"], []).append(ch)
 
     refs_by_source: List[List[Dict[str, Any]]] = []
     for i, src in enumerate(sources, 1):
         # Joined with paragraph breaks (not spaces) so a "References" heading
         # that lands at the end of one chunk still has a line break after it
-        # for extract_references_section()'s heading regex to match.
-        combined = "\n\n".join(by_doc.get(src["doc_id"], []))
+        # for extract_references_section()'s heading regex to match, and via
+        # join_chunks_with_headings() so a heading Docling stored in chunk
+        # metadata rather than chunk text is restored before the search.
+        combined = join_chunks_with_headings(by_doc.get(src["doc_id"], []))
         refs_section = extract_references_section(combined)[:_REFERENCES_MAX_CHARS]
         if not refs_section:
             continue
