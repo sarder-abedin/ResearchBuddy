@@ -97,13 +97,29 @@ def _get_converter(use_ocr: bool, models_path: Path, generate_images: bool = Fal
     return _converter_cache[key]
 
 
-def _caption_image(image_b64: str, vision_model: str, ollama_base_url: str) -> str:
-    """Caption a base64-encoded PNG image using the configured Ollama vision model."""
+def _caption_image(
+    image_b64: str,
+    vision_model: str,
+    ollama_base_url: str,
+    timeout: float = 120.0,
+) -> str:
+    """Caption a base64-encoded PNG image using the configured Ollama vision model.
+
+    ``timeout`` bounds a single captioning call. Without it a vision model that
+    stalls on one image blocks the upload forever, since captioning runs inline
+    over every figure in the document.
+    """
     try:
+        import httpx
         from langchain_ollama import ChatOllama
         from langchain_core.messages import HumanMessage
 
-        llm = ChatOllama(model=vision_model, base_url=ollama_base_url, temperature=0.0)
+        llm = ChatOllama(
+            model=vision_model,
+            base_url=ollama_base_url,
+            temperature=0.0,
+            sync_client_kwargs={"timeout": httpx.Timeout(timeout)},
+        )
         resp = llm.invoke([
             HumanMessage(content=[
                 {"type": "image_url", "image_url": f"data:image/png;base64,{image_b64}"},
@@ -155,10 +171,40 @@ def _extract_page_num(item) -> int:
     return 0
 
 
+def _table_to_markdown(item, docling_doc) -> Optional[str]:
+    """Export a Docling TableItem to Markdown across docling-core versions.
+
+    Newer docling-core takes the owning document (``export_to_markdown(doc)``)
+    and warns on every call made without it; older versions accept no argument.
+    Try the current signature first and fall back, so neither version floods
+    the logs with deprecation warnings nor breaks outright.
+    """
+    if hasattr(item, "export_to_markdown"):
+        if docling_doc is not None:
+            try:
+                return item.export_to_markdown(docling_doc)
+            except Exception:
+                # Not just TypeError: any failure here should still fall
+                # through to the remaining strategies rather than lose the
+                # table, since the caller only keeps a non-None result.
+                pass
+        try:
+            return item.export_to_markdown()
+        except Exception:
+            pass
+    if hasattr(item, "to_dataframe"):
+        try:
+            return item.to_dataframe().to_markdown(index=False)
+        except Exception:
+            pass
+    return None
+
+
 def _map_docling_chunks(
     raw_chunks: list,
     doc_id: str,
     doc_name: str,
+    docling_doc=None,
 ) -> List[DocumentChunk]:
     """Map Docling ChunkWithMetadata objects to DocumentChunk dataclass."""
     chunks: List[DocumentChunk] = []
@@ -191,15 +237,7 @@ def _map_docling_chunks(
                     from docling_core.types.doc import TableItem
                     if isinstance(item, TableItem):
                         content_type = "table"
-                        md: Optional[str] = None
-                        # export_to_markdown is preferred; fall back to str
-                        if hasattr(item, "export_to_markdown"):
-                            md = item.export_to_markdown()
-                        elif hasattr(item, "to_dataframe"):
-                            try:
-                                md = item.to_dataframe().to_markdown(index=False)
-                            except Exception:
-                                pass
+                        md: Optional[str] = _table_to_markdown(item, docling_doc)
                         if md:
                             table_md = md
                             # Plain rows for BM25 / embeddings
@@ -295,17 +333,25 @@ class DoclingProcessor:
         models_path: Optional[Union[str, Path]] = None,
         vision_model: str = "",
         ollama_base_url: str = "",
+        vision_timeout: Optional[float] = None,
+        max_figure_captions: Optional[int] = None,
     ):
         """
         Configure OCR, the raw-text size cap, where Docling's ML model
         weights are cached on disk, and an optional vision model for figure
         captioning (defaults to disabled).
+
+        ``vision_timeout`` and ``max_figure_captions`` bound figure captioning;
+        both fall back to the configured defaults when not given.
         """
         self.use_ocr = use_ocr
         self.max_raw_chars = max_raw_chars
         self.models_path = Path(models_path or _default_models_path())
         self.vision_model = vision_model
         self.ollama_base_url = ollama_base_url
+        self.vision_timeout, self.max_figure_captions = _default_vision_limits(
+            vision_timeout, max_figure_captions
+        )
 
     # ── Public API ────────────────────────────────────────────
 
@@ -442,7 +488,7 @@ class DoclingProcessor:
             except TypeError:
                 chunker = HybridChunker()
             raw_chunks = list(chunker.chunk(docling_doc))
-            mapped = _map_docling_chunks(raw_chunks, doc_id, doc_name)
+            mapped = _map_docling_chunks(raw_chunks, doc_id, doc_name, docling_doc)
             if mapped:
                 return mapped
         except Exception as exc:
@@ -490,6 +536,11 @@ class DoclingProcessor:
         Returns one DocumentChunk per figure, with content_type="figure" and the
         caption as the chunk text. Silently skips any figure that fails extraction
         or captioning — never blocks the main pipeline.
+
+        Captioning is one LLM call per figure, run sequentially, so a
+        figure-heavy paper is capped at ``max_figure_captions`` figures to bound
+        how long an upload can take. Remaining figures are skipped with a log
+        line rather than silently.
         """
         if not self.vision_model:
             return []
@@ -504,9 +555,13 @@ class DoclingProcessor:
 
         chunks: List[DocumentChunk] = []
         figure_index = 0
+        skipped = 0
         try:
             for item, _level in docling_doc.iterate_items():
                 if not isinstance(item, PictureItem):
+                    continue
+                if figure_index >= self.max_figure_captions:
+                    skipped += 1
                     continue
                 try:
                     pil_img = item.get_image(docling_doc)
@@ -516,7 +571,10 @@ class DoclingProcessor:
                     pil_img.save(buf, format="PNG")
                     image_b64 = base64.b64encode(buf.getvalue()).decode()
 
-                    caption = _caption_image(image_b64, self.vision_model, self.ollama_base_url)
+                    caption = _caption_image(
+                        image_b64, self.vision_model, self.ollama_base_url,
+                        timeout=self.vision_timeout,
+                    )
                     if not caption:
                         continue
 
@@ -543,6 +601,13 @@ class DoclingProcessor:
         except Exception as exc:
             logger.debug("Figure extraction pass failed: %s", exc)
 
+        if skipped:
+            logger.info(
+                "Captioned %d figures; skipped %d over the MAX_FIGURE_CAPTIONS "
+                "limit of %d (raise it in .env to caption more)",
+                figure_index, skipped, self.max_figure_captions,
+            )
+
         return chunks
 
 
@@ -555,3 +620,25 @@ def _default_models_path() -> Path:
         return Path(get_settings().docling_models_path)
     except Exception:
         return Path("models/docling")
+
+
+def _default_vision_limits(
+    timeout: Optional[float], max_captions: Optional[int]
+) -> tuple:
+    """Resolve the figure-captioning budget, falling back to configured defaults.
+
+    Mirrors _default_models_path()'s tolerance of an unreadable settings file so
+    the processor stays constructible in tests and minimal environments.
+    """
+    if timeout is not None and max_captions is not None:
+        return float(timeout), int(max_captions)
+    try:
+        from config.settings import get_settings
+        cfg = get_settings()
+        default_timeout, default_max = cfg.vision_timeout, cfg.max_figure_captions
+    except Exception:
+        default_timeout, default_max = 120.0, 12
+    return (
+        float(default_timeout if timeout is None else timeout),
+        int(default_max if max_captions is None else max_captions),
+    )

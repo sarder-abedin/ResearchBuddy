@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from .. import jobs
 
@@ -122,7 +123,16 @@ async def upload_source(
         tmp.close()
 
         try:
-            return notebook_service.upload_source(
+            # Offloaded to a worker thread: notebook_service.upload_source() is
+            # fully synchronous and slow (Docling ML conversion, then one vision
+            # LLM call per figure). Awaiting it inline on the event loop froze
+            # the whole app for the duration -- health checks, job polling and
+            # every other request included -- so an upload looked like it had
+            # stalled. Every other endpoint in this router is a plain `def`,
+            # which FastAPI already runs in a threadpool; this one has to stay
+            # `async def` for the streaming `await file.read()` above.
+            return await run_in_threadpool(
+                notebook_service.upload_source,
                 notebook_id, filename, tmp_path,
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap,
                 use_docling=use_docling, use_ocr=use_ocr,

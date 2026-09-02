@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # to enable automatic captioning of figures in uploaded PDFs.
     # Leave blank to skip figure extraction (default, no overhead).
     vision_model: str = Field("", alias="VISION_MODEL")
+    # Per-figure captioning budget. Captioning is one LLM call per figure and
+    # runs inline during upload, so both a timeout and a cap are needed to keep
+    # a figure-heavy paper from stalling the upload indefinitely.
+    vision_timeout: float = Field(120.0, alias="VISION_TIMEOUT")
+    max_figure_captions: int = Field(12, alias="MAX_FIGURE_CAPTIONS")
 
     # ── Langfuse Observability (optional) ────────────────────
     langfuse_public_key: str = Field("", alias="LANGFUSE_PUBLIC_KEY")
