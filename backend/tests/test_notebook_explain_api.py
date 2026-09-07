@@ -39,6 +39,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.tests.conftest import upload_source
+
 import agents.story_nodes as story_nodes_module
 import tools.search_tools as search_tools_module
 from agents.notebook_memory import NotebookMemory
@@ -122,7 +124,7 @@ def test_turn_with_document_returns_grounded_explanation_and_citations(client: T
             "text/plain",
         )
     }
-    client.post(f"{_NOTEBOOK_BASE}/notebooks/{nb_id}/sources", files=files)
+    upload_source(client, nb_id, files)
 
     with patch.object(story_nodes_module, "ChatOllama", MockChatOllama):
         r = client.post(f"{_BASE}/turn", json={"notebook_id": nb_id, "message": "What is self-attention?"})

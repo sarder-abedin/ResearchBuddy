@@ -128,3 +128,12 @@ export interface ChatJobStatus {
   error: string | null;
   result: ChatResult | null;
 }
+
+export interface UploadJobStatus {
+  id: string;
+  status: JobStatusValue;
+  stage: string | null;
+  stage_info: Record<string, unknown>;
+  error: string | null;
+  result: UploadSourceResult | null;
+}

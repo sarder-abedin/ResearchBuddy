@@ -130,7 +130,14 @@ comparison), the Explain tab, and the Research Report workflow
   (`Job` dataclass + `run_in_background`) reused by every long-running chat
   endpoint across Modes 1–3; the frontend polls `GET /api/*/jobs/{id}` on a
   700ms interval until `status` is `done` or `error` (`pollUntilTerminal` in
-  `frontend/src/api/*.ts`).
+  `frontend/src/api/*.ts`). Notebook **source upload** uses it too — Docling's
+  CPU layout pass plus one vision LLM call per figure takes minutes, so
+  `POST /notebooks/{id}/sources` returns 202 + a job id and the client polls
+  `GET /notebooks/{id}/sources/jobs/{job_id}`. The notebook-exists and
+  file-extension checks still happen synchronously so a bad upload fails with
+  404/400 rather than deferring the error into a job. Backend tests go through
+  the `upload_source` helper in `backend/tests/conftest.py`, which posts and
+  blocks until the job finishes.
 - `backend/app/mock_llm.py` / `mock_search.py` — dev/test-only stubs, installed
   at the top of `backend/app/main.py` (not the CLI's `main.py`) when
   `BEESEARCH_MOCK_LLM=1` is set, **before** any `agents.*` import (`ChatOllama`
