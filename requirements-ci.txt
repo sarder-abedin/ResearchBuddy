@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────
+#  BeeSearch — CI test dependencies
+#
+#  The subset of requirements.txt needed to run the test suite
+#  (tests/ + backend/tests/). Version constraints mirror
+#  requirements.txt so CI resolves the same versions.
+#
+#  WHY NOT JUST requirements.txt:
+#  docling pulls torch, and streamlit/chromadb/faiss/opencv add
+#  gigabytes more. None of them are needed: every one is imported
+#  lazily behind a try/except ImportError with a working fallback
+#  (see tools/document_tools.py::get_processor and
+#  tools/hybrid_store.py), so the whole suite passes without them.
+#  Installing them would add minutes per run and test nothing.
+#
+#  IF A TEST NEEDS SOMETHING NOT LISTED HERE, CI fails loudly with
+#  ModuleNotFoundError at collection — add the package here (and to
+#  requirements.txt if it is a runtime dependency too).
+# ─────────────────────────────────────────────────────────────
+
+# Test runner
+pytest>=8.0.0
+
+# Config (config/settings.py)
+python-dotenv>=1.0.0
+pydantic-settings>=2.0.0
+
+# Web API + test client (backend/)
+fastapi>=0.110.0
+httpx>=0.27.0
+python-multipart>=0.0.9
+
+# Agent pipelines (agents/)
+langgraph>=0.2.0
+langchain-ollama>=0.2.0
+
+# Retrieval + search helpers exercised by the pure-logic tests
+rank-bm25>=0.2.2
+networkx>=3.0
+tenacity>=8.2.3
+requests>=2.32.0
