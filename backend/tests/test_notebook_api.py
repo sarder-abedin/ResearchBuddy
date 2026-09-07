@@ -155,6 +155,44 @@ def test_upload_job_status_unknown_id_returns_404(client: TestClient, mem):
     assert r.status_code == 404
 
 
+def test_upload_job_reports_error_and_cleans_up_temp_file(
+    client: TestClient, mem, monkeypatch
+):
+    """A processing failure surfaces as an error job, and the streamed temp file
+    is still removed.
+
+    Cleanup lives entirely in the job now: the request that streamed the upload
+    to disk returns long before processing runs, so it can no longer delete the
+    file itself. Nothing else covers that, and a leak here would be silent.
+    """
+    nb_id = client.post(f"{_BASE}/notebooks", json={"name": "X"}).json()["notebook_id"]
+    seen: dict = {}
+
+    def boom(notebook_id, filename, tmp_path, **kwargs):
+        seen["tmp_path"] = tmp_path
+        assert tmp_path.exists(), "the job should be handed a file that still exists"
+        raise ValueError("corrupt document")
+
+    monkeypatch.setattr(notebook_service, "upload_source", boom)
+
+    files = {"file": ("bad.txt", b"whatever", "text/plain")}
+    r = client.post(f"{_BASE}/notebooks/{nb_id}/sources", files=files)
+    assert r.status_code == 202
+    job_id = r.json()["job_id"]
+
+    deadline = time.monotonic() + 5.0
+    status: dict = {}
+    while time.monotonic() < deadline:
+        status = client.get(f"{_BASE}/notebooks/{nb_id}/sources/jobs/{job_id}").json()
+        if status["status"] in ("done", "error"):
+            break
+        time.sleep(0.01)
+
+    assert status["status"] == "error"
+    assert "corrupt document" in status["error"]
+    assert not seen["tmp_path"].exists(), "temp file leaked after a failed upload job"
+
+
 def test_upload_source_round_trip(client: TestClient, mem):
     nb_id = client.post(f"{_BASE}/notebooks", json={"name": "X"}).json()["notebook_id"]
     files = {"file": ("notes.txt", b"Hello world, this is a source.", "text/plain")}
