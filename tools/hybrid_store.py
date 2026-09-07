@@ -44,6 +44,11 @@ class _NoopEF:
     instantiating DefaultEmbeddingFunction (which downloads all-MiniLM-L6-v2
     via sentence-transformers). HybridStore always passes precomputed
     embeddings to upsert/add, so this function is never actually called.
+
+    Implements the minimal interface required by all chromadb versions:
+      - chromadb 0.5.x: only __call__ is required.
+      - chromadb 1.x: additionally requires name(), build_from_config(),
+        get_config() per the EmbeddingFunction protocol.
     """
 
     def __call__(self, input):  # noqa: A002
@@ -51,6 +56,16 @@ class _NoopEF:
             "HybridStore always provides precomputed Ollama embeddings; "
             "the ChromaDB embedding function should never be invoked."
         )
+
+    def name(self) -> str:  # noqa: A003
+        return "beesearch_noop"
+
+    @classmethod
+    def build_from_config(cls, config: dict) -> "_NoopEF":
+        return cls()
+
+    def get_config(self) -> dict:
+        return {}
 
 _RRF_K = 60   # standard RRF constant; higher → smooths rank differences
 
