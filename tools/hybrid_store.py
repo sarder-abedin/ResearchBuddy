@@ -37,6 +37,21 @@ from tools.embeddings import OllamaEmbedder
 
 logger = logging.getLogger(__name__)
 
+
+class _NoopEF:
+    """
+    Sentinel embedding function passed to ChromaDB to prevent it from
+    instantiating DefaultEmbeddingFunction (which downloads all-MiniLM-L6-v2
+    via sentence-transformers). HybridStore always passes precomputed
+    embeddings to upsert/add, so this function is never actually called.
+    """
+
+    def __call__(self, input):  # noqa: A002
+        raise RuntimeError(
+            "HybridStore always provides precomputed Ollama embeddings; "
+            "the ChromaDB embedding function should never be invoked."
+        )
+
 _RRF_K = 60   # standard RRF constant; higher → smooths rank differences
 
 
@@ -354,10 +369,28 @@ class HybridStore:
         """Return (lazily creating) this embed model's ChromaDB collection."""
         if self._chroma_col is None:
             client = self._get_chroma_client()
-            self._chroma_col = client.get_or_create_collection(
-                name=self._collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
+            try:
+                self._chroma_col = client.get_or_create_collection(
+                    name=self._collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                    embedding_function=_NoopEF(),
+                )
+            except Exception:
+                # Existing collection was created without a custom embedding_function,
+                # causing ChromaDB to record "default" as the EF type. Reopening with
+                # _NoopEF raises a conflict error on chromadb < 1.0. Delete and recreate
+                # so future startups no longer trigger the sentence-transformers download.
+                logger.info(
+                    "HybridStore: recreating ChromaDB collection '%s' to remove "
+                    "DefaultEmbeddingFunction (one-time migration; cached embeddings cleared).",
+                    self._collection_name,
+                )
+                client.delete_collection(self._collection_name)
+                self._chroma_col = client.create_collection(
+                    name=self._collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                    embedding_function=_NoopEF(),
+                )
         return self._chroma_col
 
 
@@ -397,22 +430,14 @@ def _flatten_chunks(docs: list) -> List[Dict[str, Any]]:
     chunks = []
     for doc in docs:
         for chunk in doc.chunks:
-            flat: Dict[str, Any] = {
+            chunks.append({
                 "chunk_id": chunk.chunk_id,
                 "doc_id": chunk.doc_id,
                 "doc_name": chunk.doc_name,
                 "page_num": chunk.page_num,
                 "chunk_index": chunk.chunk_index,
                 "text": chunk.text,
-            }
-            if chunk.metadata:
-                ct = chunk.metadata.get("content_type")
-                if ct:
-                    flat["content_type"] = ct
-                tmd = chunk.metadata.get("table_md")
-                if tmd:
-                    flat["table_md"] = tmd
-            chunks.append(flat)
+            })
     return chunks
 
 
