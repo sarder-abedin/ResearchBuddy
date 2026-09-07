@@ -9,7 +9,6 @@ import type {
   NotebookSummary,
   RemoveSourceResult,
   UploadJobStatus,
-  UploadSourceResult,
 } from "./notebookTypes";
 
 const POLL_INTERVAL_MS = 700;
