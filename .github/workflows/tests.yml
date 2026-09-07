@@ -1,0 +1,101 @@
+name: Tests
+
+# Runs the test suites on every pull request and on pushes to main.
+#
+# Before this existed the repo had no CI at all, so "the tests pass" rested
+# entirely on whoever ran them locally saying so.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 matches the Dockerfile (python:3.11-slim).
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      # requirements-ci.txt, not requirements.txt: docling pulls torch and
+      # streamlit/chromadb/faiss add gigabytes more, none of which the suite
+      # needs (they are imported lazily behind working fallbacks). See the
+      # header of that file.
+      - name: Install test dependencies
+        run: pip install -r requirements-ci.txt
+
+      # No path argument: `pytest tests/` alone would silently skip
+      # backend/tests/, which is over half the suite.
+      - name: Run tests
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Dockerfile's node:20-alpine build stage.
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Run tests
+        run: npm run test
+
+  lint:
+    name: Lint (advisory)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Advisory, not blocking: main currently has two pre-existing
+      # react-hooks/set-state-in-effect errors (ReviewerPanel.tsx,
+      # SettingsContext.tsx). Gating on lint today would paint every pull
+      # request red for something it did not cause. Fix those two, then drop
+      # this continue-on-error to make lint a real gate.
+      - name: ESLint
+        continue-on-error: true
+        run: npm run lint
