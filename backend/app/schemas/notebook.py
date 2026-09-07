@@ -103,6 +103,18 @@ class UploadSourceResult(BaseModel):
     source: Optional[SourceMeta] = None
 
 
+class UploadJobStatus(JobStatusBase):
+    """Progress of a source upload running on the background job runner.
+
+    Uploads are slow enough (Docling layout ML, then one vision LLM call per
+    figure) that holding the HTTP request open for them left the browser
+    waiting minutes with no feedback, so they follow the same 202 + poll
+    pattern as chat.
+    """
+
+    result: Optional[UploadSourceResult] = None
+
+
 class RemoveSourceResult(BaseModel):
     removed: bool
 

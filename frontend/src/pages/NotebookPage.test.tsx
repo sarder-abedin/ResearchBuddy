@@ -14,6 +14,7 @@ const removeSourceMock = vi.fn();
 const renameNotebookMock = vi.fn();
 const sendChatMessageMock = vi.fn();
 const uploadSourceMock = vi.fn();
+const pollUploadJobMock = vi.fn();
 
 vi.mock("../api/notebook", () => ({
   createNotebook: (...args: unknown[]) => createNotebookMock(...args),
@@ -24,6 +25,7 @@ vi.mock("../api/notebook", () => ({
   removeSource: (...args: unknown[]) => removeSourceMock(...args),
   renameNotebook: (...args: unknown[]) => renameNotebookMock(...args),
   sendChatMessage: (...args: unknown[]) => sendChatMessageMock(...args),
+  pollUploadJob: (...args: unknown[]) => pollUploadJobMock(...args),
   uploadSource: (...args: unknown[]) => uploadSourceMock(...args),
 }));
 
@@ -145,6 +147,7 @@ describe("NotebookPage", () => {
     renameNotebookMock.mockReset();
     sendChatMessageMock.mockReset();
     uploadSourceMock.mockReset();
+    pollUploadJobMock.mockReset();
   });
 
   it("renders the header, intro, and a default '+ New notebook' selector option", async () => {
@@ -212,7 +215,11 @@ describe("NotebookPage", () => {
     getNotebookMock
       .mockResolvedValueOnce(makeDetail())
       .mockResolvedValueOnce(makeDetail({ sources: [makeSource()], source_count: 1 }));
-    uploadSourceMock.mockResolvedValue({ added: true, duplicate: false, source: makeSource() });
+    uploadSourceMock.mockResolvedValue({ job_id: "job-1" });
+    pollUploadJobMock.mockResolvedValue({
+      id: "job-1", status: "done", stage: "done", stage_info: {}, error: null,
+      result: { added: true, duplicate: false, source: makeSource() },
+    });
     render(<NotebookPage />);
 
     await user.selectOptions(await screen.findByLabelText("Select a notebook"), "nb-1");
@@ -230,7 +237,11 @@ describe("NotebookPage", () => {
     const user = userEvent.setup();
     listNotebooksMock.mockResolvedValue([makeSummary()]);
     getNotebookMock.mockResolvedValue(makeDetail());
-    uploadSourceMock.mockResolvedValue({ added: false, duplicate: true, source: null });
+    uploadSourceMock.mockResolvedValue({ job_id: "job-2" });
+    pollUploadJobMock.mockResolvedValue({
+      id: "job-2", status: "done", stage: "done", stage_info: {}, error: null,
+      result: { added: false, duplicate: true, source: null },
+    });
     render(<NotebookPage />);
 
     await user.selectOptions(await screen.findByLabelText("Select a notebook"), "nb-1");

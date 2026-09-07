@@ -10,6 +10,7 @@ import {
   removeSource,
   renameNotebook,
   sendChatMessage,
+  pollUploadJob,
   uploadSource,
 } from "../api/notebook";
 import { ApiError } from "../api/client";
@@ -52,6 +53,7 @@ export default function NotebookPage() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState("");
   const [sidebarNotice, setSidebarNotice] = useState<{ kind: "warning" | "info"; text: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [autoWebSearch, setAutoWebSearch] = useState(false);
@@ -168,10 +170,23 @@ export default function NotebookPage() {
     setUploading(true);
     setSidebarNotice(null);
     const duplicates: string[] = [];
+    const fileList = Array.from(files);
     try {
-      for (const file of Array.from(files)) {
-        const result = await uploadSource(activeId, file, settings.chunkSize, settings.chunkOverlap, settings.useDocling, settings.useOcr, settings.largeDocPageThreshold, settings.visionModel);
-        if (result.duplicate) duplicates.push(file.name);
+      for (const [i, file] of fileList.entries()) {
+        const position = fileList.length > 1 ? ` (${i + 1}/${fileList.length})` : "";
+        setUploadStage(`Uploading ${file.name}${position}…`);
+        // Uploads run as a background job: Docling conversion plus one vision
+        // call per figure takes minutes, so the request returns a job id
+        // immediately and progress arrives through polling.
+        const { job_id } = await uploadSource(activeId, file, settings.chunkSize, settings.chunkOverlap, settings.useDocling, settings.useOcr, settings.largeDocPageThreshold, settings.visionModel);
+        const final = await pollUploadJob(activeId, job_id, (status) => {
+          const step = status.stage_info?.step;
+          if (typeof step === "string") setUploadStage(`${step}${position}`);
+        });
+        if (final.status === "error") {
+          throw new Error(final.error ?? `Failed to process ${file.name}.`);
+        }
+        if (final.result?.duplicate) duplicates.push(file.name);
       }
       if (duplicates.length > 0) {
         setSidebarNotice({ kind: "info", text: `Already in this notebook (skipped): ${duplicates.join(", ")}` });
@@ -182,6 +197,7 @@ export default function NotebookPage() {
       setSidebarNotice({ kind: "warning", text: errorMessage(err) });
     } finally {
       setUploading(false);
+      setUploadStage("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -379,7 +395,9 @@ export default function NotebookPage() {
                 onChange={(e) => void handleUpload(e.target.files)}
                 disabled={uploading}
               />
-              {uploading && <p className="sr-spinner-text">Uploading…</p>}
+              {uploading && (
+                <p className="sr-spinner-text">{uploadStage || "Uploading…"}</p>
+              )}
 
               {detail.sources.length === 0 ? (
                 <p className="sr-caption">

@@ -10,8 +10,12 @@ frontend polls ``GET /jobs/{job_id}`` for the same ``stream_callback``
 progress (retrieve/answer/save/notebook_eval) the Streamlit tab already
 renders live, then the final result once ``status == "done"``.
 
-Everything else (notebook CRUD, source upload/removal, history) is a small,
-fast, non-LLM operation against ``NotebookMemory``, so those run synchronously.
+Source upload follows the same 202 + poll pattern, for the same reason:
+Docling's layout pass runs on CPU and is followed by one vision LLM call per
+figure, so an upload takes minutes and cannot be answered inside the request.
+
+Everything else (notebook CRUD, source removal, history) is a small, fast,
+non-LLM operation against ``NotebookMemory``, so those run synchronously.
 """
 
 from __future__ import annotations
@@ -22,7 +26,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from starlette.concurrency import run_in_threadpool
+
+from tools.docling_processor import SUPPORTED_EXTENSIONS
 
 from .. import jobs
 
@@ -38,7 +43,7 @@ from ..schemas.notebook import (
     NotebookSummary,
     RemoveSourceResult,
     RenameNotebookRequest,
-    UploadSourceResult,
+    UploadJobStatus,
 )
 from ..services import notebook_service
 
@@ -92,7 +97,9 @@ def get_history(notebook_id: str, max_turns: int = 8) -> List[ConversationTurn]:
 # Source upload / removal
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/notebooks/{notebook_id}/sources", response_model=UploadSourceResult)
+@router.post(
+    "/notebooks/{notebook_id}/sources", response_model=JobCreated, status_code=202
+)
 async def upload_source(
     notebook_id: str,
     file: UploadFile = File(...),
@@ -102,9 +109,37 @@ async def upload_source(
     use_ocr: bool = Form(False),
     large_doc_page_threshold: int = Form(50, ge=1, le=500),
     vision_model: str = Form(""),
-) -> UploadSourceResult:
+) -> JobCreated:
+    """Accept a source file and process it on the background job runner.
+
+    Processing is far too slow to hold the request open for: a Docling layout
+    pass runs on CPU (30-130 s is typical) and is then followed by one vision
+    LLM call per figure. Doing that inline meant the browser sat on an open
+    connection for minutes with no progress and no result -- indistinguishable
+    from a hang, and long enough for an intermediary to drop the connection.
+
+    So this returns 202 + a job id as soon as the bytes are on disk, and the
+    client polls ``GET .../sources/jobs/{job_id}`` -- the same pattern chat and
+    every other long-running endpoint already use.
+    """
     filename = file.filename or "upload"
     suffix = Path(filename).suffix.lower() or ".bin"
+
+    # Validated up front so a bad request still fails fast with a real status
+    # code, instead of being deferred into a job the client has to poll to
+    # discover it was rejected. SUPPORTED_EXTENSIONS is the Docling set, which
+    # is a superset of what the pdfplumber fallback accepts, so this never
+    # rejects a file one of the processors could have handled.
+    if not notebook_service.notebook_exists(notebook_id):
+        raise HTTPException(status_code=404, detail=f"Notebook '{notebook_id}' not found.")
+    if suffix not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported file type '{suffix}'. "
+                f"Accepted: {', '.join(sorted(SUPPORTED_EXTENSIONS))}."
+            ),
+        )
 
     # Stream upload directly to disk in 64 KiB chunks — never hold the full
     # file in RAM alongside the extraction buffers (avoids OOM on large PDFs).
@@ -121,34 +156,42 @@ async def upload_source(
                 )
             tmp.write(chunk)
         tmp.close()
-
-        try:
-            # Offloaded to a worker thread: notebook_service.upload_source() is
-            # fully synchronous and slow (Docling ML conversion, then one vision
-            # LLM call per figure). Awaiting it inline on the event loop froze
-            # the whole app for the duration -- health checks, job polling and
-            # every other request included -- so an upload looked like it had
-            # stalled. Every other endpoint in this router is a plain `def`,
-            # which FastAPI already runs in a threadpool; this one has to stay
-            # `async def` for the streaming `await file.read()` above.
-            return await run_in_threadpool(
-                notebook_service.upload_source,
-                notebook_id, filename, tmp_path,
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap,
-                use_docling=use_docling, use_ocr=use_ocr,
-                large_doc_page_threshold=large_doc_page_threshold,
-                vision_model=vision_model,
-            )
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"Notebook '{notebook_id}' not found.")
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        try:
-            tmp.close()
-        except Exception:
-            pass
+    except BaseException:
+        # Only on a failed upload: once the job is handed the path it owns the
+        # file, and this request returns long before processing finishes.
+        tmp.close()
         tmp_path.unlink(missing_ok=True)
+        raise
+
+    job = jobs.create_job()
+    jobs.run_in_background(
+        job,
+        lambda cb: notebook_service.run_upload_job(
+            notebook_id, filename, tmp_path, cb,
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+            use_docling=use_docling, use_ocr=use_ocr,
+            large_doc_page_threshold=large_doc_page_threshold,
+            vision_model=vision_model,
+        ),
+    )
+    return JobCreated(job_id=job.id)
+
+
+@router.get(
+    "/notebooks/{notebook_id}/sources/jobs/{job_id}", response_model=UploadJobStatus
+)
+def get_upload_job_status(notebook_id: str, job_id: str) -> UploadJobStatus:
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return UploadJobStatus(
+        id=job.id,
+        status=job.status,
+        stage=job.stage,
+        stage_info=job.stage_info,
+        error=job.error,
+        result=job.result,
+    )
 
 
 @router.delete("/notebooks/{notebook_id}/sources/{doc_id}", response_model=RemoveSourceResult)

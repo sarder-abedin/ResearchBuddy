@@ -239,6 +239,36 @@ def upload_source(
     )
 
 
+def run_upload_job(
+    notebook_id: str,
+    filename: str,
+    tmp_path: Path,
+    stream_callback: Callable[[str, Dict[str, Any]], None],
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Run one source upload on the background job runner.
+
+    Owns ``tmp_path`` and always deletes it: the HTTP request that streamed the
+    upload to disk returns before this runs, so it cannot do the cleanup itself.
+
+    Progress is coarse — the underlying processor is a single blocking call with
+    no callback of its own — but it is enough for the frontend to show that work
+    is happening rather than leaving the user staring at a spinner through a
+    Docling conversion and a run of vision-model figure captions.
+    """
+    try:
+        stream_callback("processing", {"step": f"Extracting text from {filename}…"})
+        result = upload_source(notebook_id, filename, tmp_path, **kwargs)
+        stream_callback(
+            "done",
+            {"step": "Duplicate source — already in this notebook."
+                     if result.duplicate else f"Indexed {filename}."},
+        )
+        return result.model_dump()
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 def remove_source(notebook_id: str, doc_id: str) -> bool:
     removed = _get_memory().remove_source(notebook_id, doc_id)
     if removed:

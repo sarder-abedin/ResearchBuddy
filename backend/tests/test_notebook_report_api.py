@@ -27,6 +27,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.tests.conftest import upload_source
+
 import agents.graph as graph_module
 import tools.search_tools as search_tools_module
 from agents.notebook_memory import NotebookMemory
@@ -115,7 +117,7 @@ def test_run_document_mode_with_uploaded_source_and_no_academic(client: TestClie
             "text/plain",
         )
     }
-    client.post(f"{_NOTEBOOK_BASE}/notebooks/{nb_id}/sources", files=files)
+    upload_source(client, nb_id, files)
 
     with patch.object(graph_module, "ChatOllama", MockChatOllama):
         r = client.post(
@@ -140,7 +142,7 @@ def test_run_hybrid_mode_with_source_and_academic(client: TestClient, mem):
             "text/plain",
         )
     }
-    client.post(f"{_NOTEBOOK_BASE}/notebooks/{nb_id}/sources", files=files)
+    upload_source(client, nb_id, files)
 
     with patch.object(graph_module, "ChatOllama", MockChatOllama):
         r = client.post(

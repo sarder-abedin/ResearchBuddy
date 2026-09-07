@@ -34,6 +34,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.tests.conftest import upload_source
+
 import agents.notebook_advanced as notebook_advanced_module
 from agents.notebook_memory import NotebookMemory
 from backend.app import jobs as jobs_module
@@ -139,7 +141,7 @@ def _make_notebook_with_source(
 ):
     nb_id = client.post(f"{_NB_BASE}/notebooks", json={"name": "X"}).json()["notebook_id"]
     files = {"file": ("sky.txt", text, "text/plain")}
-    upload = client.post(f"{_NB_BASE}/notebooks/{nb_id}/sources", files=files).json()
+    upload = upload_source(client, nb_id, files)
     return nb_id, upload["source"]["doc_id"]
 
 
@@ -261,7 +263,7 @@ def test_audio_summary_round_trip(client: TestClient, mem):
 def test_compare_sources_round_trip(client: TestClient, mem):
     nb_id, doc_id_a = _make_notebook_with_source(client, text=b"Source A is about light.")
     files_b = {"file": ("ocean.txt", b"Source B is about water.", "text/plain")}
-    doc_id_b = client.post(f"{_NB_BASE}/notebooks/{nb_id}/sources", files=files_b).json()["source"]["doc_id"]
+    doc_id_b = upload_source(client, nb_id, files_b)["source"]["doc_id"]
 
     with patch.object(notebook_advanced_module, "ChatOllama", return_value=_mock_advanced_llm()):
         r = client.post(

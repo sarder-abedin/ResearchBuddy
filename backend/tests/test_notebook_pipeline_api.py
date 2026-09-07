@@ -40,6 +40,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.tests.conftest import upload_source
+
 import agents.notebook_pipeline_nodes as notebook_pipeline_nodes_module
 from agents.notebook_memory import NotebookMemory
 from backend.app import jobs as jobs_module
@@ -207,7 +209,7 @@ def test_run_pipeline_with_sources_populates_all_agent_outputs(client: TestClien
     }
     for filename, content in sources.items():
         files = {"file": (filename, content, "text/plain")}
-        client.post(f"{_NB_BASE}/notebooks/{nb_id}/sources", files=files)
+        upload_source(client, nb_id, files)
 
     with patch("langchain_ollama.ChatOllama", return_value=_mock_pipeline_llm()):
         r = client.post(f"{_BASE}/run", json={"notebook_id": nb_id, "query": "Rayleigh scattering"})
@@ -237,7 +239,7 @@ def test_run_pipeline_node_exception_surfaces_as_job_error(client: TestClient, m
     catching is surfaced as status="error", not silently swallowed."""
     nb_id = client.post(f"{_NB_BASE}/notebooks", json={"name": "X"}).json()["notebook_id"]
     files = {"file": ("sky.txt", b"The sky is blue.", "text/plain")}
-    client.post(f"{_NB_BASE}/notebooks/{nb_id}/sources", files=files)
+    upload_source(client, nb_id, files)
 
     with patch.object(
         notebook_pipeline_nodes_module, "_get_memory", side_effect=RuntimeError("DB exploded")

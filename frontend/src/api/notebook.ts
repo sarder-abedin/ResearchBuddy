@@ -8,6 +8,7 @@ import type {
   NotebookDetail,
   NotebookSummary,
   RemoveSourceResult,
+  UploadJobStatus,
   UploadSourceResult,
 } from "./notebookTypes";
 
@@ -102,7 +103,7 @@ export function uploadSource(
   useOcr?: boolean,
   largeDocPageThreshold?: number,
   visionModel?: string,
-): Promise<UploadSourceResult> {
+): Promise<JobCreated> {
   const formData = new FormData();
   formData.append("file", file);
   if (chunkSize != null) formData.append("chunk_size", String(chunkSize));
@@ -111,10 +112,35 @@ export function uploadSource(
   if (useOcr != null) formData.append("use_ocr", String(useOcr));
   if (largeDocPageThreshold != null) formData.append("large_doc_page_threshold", String(largeDocPageThreshold));
   if (visionModel) formData.append("vision_model", visionModel);
-  return apiFetch<UploadSourceResult>(`${BASE}/notebooks/${notebookId}/sources`, {
+  return apiFetch<JobCreated>(`${BASE}/notebooks/${notebookId}/sources`, {
     method: "POST",
     body: formData,
   });
+}
+
+export function getUploadJobStatus(
+  notebookId: string,
+  jobId: string,
+): Promise<UploadJobStatus> {
+  return apiFetch<UploadJobStatus>(
+    `${BASE}/notebooks/${notebookId}/sources/jobs/${jobId}`,
+  );
+}
+
+/** Poll an upload job to completion. Uploads run in the background because
+ * Docling conversion plus per-figure vision captioning takes minutes -- far
+ * too long to hold the HTTP request open. */
+export function pollUploadJob(
+  notebookId: string,
+  jobId: string,
+  onUpdate: (status: UploadJobStatus) => void,
+  signal?: AbortSignal,
+): Promise<UploadJobStatus> {
+  return pollUntilTerminal(
+    () => getUploadJobStatus(notebookId, jobId),
+    onUpdate,
+    signal,
+  );
 }
 
 export function removeSource(notebookId: string, docId: string): Promise<RemoveSourceResult> {
