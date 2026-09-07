@@ -76,6 +76,17 @@ cd frontend && npm run e2e                                       # frontend E2E 
 `backend/tests/` (FastAPI service/API tests). Always use the no-path form
 (`python -m pytest -q`, from repo root) when you mean "run everything."
 
+`.github/workflows/tests.yml` runs the Python suite, the frontend suite, and
+`tsc --noEmit` on every PR. It installs `requirements-ci.txt` — the subset of
+`requirements.txt` the tests actually need — rather than the full file, because
+docling pulls torch and streamlit/chromadb/faiss add gigabytes more, none of
+which the suite needs (all are imported lazily behind working fallbacks). **If a
+test needs a package not in `requirements-ci.txt`, CI fails with
+`ModuleNotFoundError` at collection — add it there.** ESLint runs advisory-only
+(`continue-on-error`) while two pre-existing `react-hooks/set-state-in-effect`
+errors remain in `ReviewerPanel.tsx` and `SettingsContext.tsx`; fix those and
+the flag can be dropped to make lint a real gate. Playwright E2E is not in CI.
+
 `rich` may not be installed in some sandboxes even though it's in `requirements.txt`. If
 so, `py_compile` is enough for a syntax check; to exercise `main.py`'s argparse logic,
 stub `sys.modules["rich"]` (and submodules) with `MagicMock()` before importing `main`.
